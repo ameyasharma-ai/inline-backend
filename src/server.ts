@@ -358,6 +358,67 @@ app.get("/api/room/:roomId", (req: Request, res: Response) => {
 	}
 })
 
+app.post("/api/copilot", async (req: Request, res: Response) => {
+	const apiKey = process.env.OPENROUTER_API_KEY
+	if (!apiKey) {
+		return res.status(500).json({ error: "Server is missing OpenRouter API Key configuration." })
+	}
+	
+	try {
+		const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"Authorization": `Bearer ${apiKey}`
+			},
+			body: JSON.stringify(req.body)
+		})
+		
+		const data = await response.json()
+		
+		if (!response.ok) {
+			return res.status(response.status).json(data)
+		}
+		
+		res.json(data)
+	} catch (error: any) {
+		console.error("OpenRouter Proxy Error:", error)
+		res.status(500).json({ error: { message: "Failed to communicate with OpenRouter API" } })
+	}
+})
+
+app.get("/api/languages", async (req: Request, res: Response) => {
+	const judge0Url = process.env.JUDGE0_API_URL || "https://ce.judge0.com"
+	try {
+		const response = await fetch(`${judge0Url}/languages`)
+		const data = await response.json()
+		if (!response.ok) return res.status(response.status).json(data)
+		res.json(data)
+	} catch (error: any) {
+		console.error("Judge0 Languages Proxy Error:", error)
+		res.status(500).json({ error: { message: "Failed to fetch languages from Judge0" } })
+	}
+})
+
+app.post("/api/submissions", async (req: Request, res: Response) => {
+	const judge0Url = process.env.JUDGE0_API_URL || "https://ce.judge0.com"
+	try {
+		const response = await fetch(`${judge0Url}/submissions?wait=true&base64_encoded=true`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(req.body)
+		})
+		const data = await response.json()
+		if (!response.ok) return res.status(response.status).json(data)
+		res.json(data)
+	} catch (error: any) {
+		console.error("Judge0 Submissions Proxy Error:", error)
+		res.status(500).json({ error: { message: "Failed to execute code on Judge0" } })
+	}
+})
+
 app.get("*", (req: Request, res: Response) => {
 	// Send the index.html file
 	res.sendFile(path.join(__dirname, "..", "public", "index.html"))
