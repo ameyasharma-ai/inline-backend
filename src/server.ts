@@ -324,6 +324,41 @@ io.on("connection", (socket) => {
 			snapshot,
 		})
 	})
+
+	// Handle WebRTC signaling
+	socket.on(SocketEvent.SEND_RTC_OFFER, ({ offer, targetId }) => {
+		socket.to(targetId).emit(SocketEvent.RECEIVE_RTC_OFFER, {
+			offer,
+			senderId: socket.id,
+		})
+	})
+
+	socket.on(SocketEvent.SEND_RTC_ANSWER, ({ answer, targetId }) => {
+		socket.to(targetId).emit(SocketEvent.RECEIVE_RTC_ANSWER, {
+			answer,
+			senderId: socket.id,
+		})
+	})
+
+	socket.on(SocketEvent.SEND_ICE_CANDIDATE, ({ candidate, targetId }) => {
+		socket.to(targetId).emit(SocketEvent.RECEIVE_ICE_CANDIDATE, {
+			candidate,
+			senderId: socket.id,
+		})
+	})
+
+	socket.on("RTC_CALL_START", ({ roomId }) => {
+		socket.broadcast.to(roomId).emit("RTC_CALL_INVITE", {
+			senderId: socket.id,
+			senderName: getUserBySocketId(socket.id)?.username || "Someone"
+		})
+	})
+
+	socket.on("RTC_PROCEED_OFFER", ({ targetId }) => {
+		socket.to(targetId).emit("RTC_READY_TO_RECEIVE", {
+			senderId: socket.id
+		})
+	})
 })
 
 // Prune unattended rooms every minute
