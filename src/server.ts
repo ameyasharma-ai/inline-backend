@@ -28,6 +28,7 @@ const io = new Server(server, {
 
 let userSocketMap: User[] = []
 const roomPasswords = new Map<string, string>()
+const roomCallParticipants = new Map<string, Set<string>>()
 
 // Track room activity to auto-close unattended rooms (30 minutes)
 const roomActivity = new Map<string, number>()
@@ -110,7 +111,8 @@ io.on("connection", (socket) => {
 		socket.join(roomId)
 		socket.broadcast.to(roomId).emit(SocketEvent.USER_JOINED, { user })
 		const users = getUsersInRoom(roomId)
-		io.to(socket.id).emit(SocketEvent.JOIN_ACCEPTED, { user, users })
+		const hasActiveCall = roomCallParticipants.has(roomId) && (roomCallParticipants.get(roomId)?.size || 0) > 0
+		io.to(socket.id).emit(SocketEvent.JOIN_ACCEPTED, { user, users, hasActiveCall })
 	})
 
 	socket.on("disconnecting", () => {
@@ -125,9 +127,18 @@ io.on("connection", (socket) => {
 
 		// Clean up room password if room is empty
 		if (getUsersInRoom(roomId).length === 0) {
-			roomPasswords.delete(roomId)
             roomActivity.delete(roomId)
+            roomCallParticipants.delete(roomId)
 		} else {
+            // Remove from call participants if they were in one
+            const participants = roomCallParticipants.get(roomId)
+            if (participants) {
+                participants.delete(socket.id)
+                if (participants.size === 0) {
+                    roomCallParticipants.delete(roomId)
+                    socket.broadcast.to(roomId).emit("RTC_CALL_TERMINATED")
+                }
+            }
             updateRoomActivity(roomId)
         }
 	})
@@ -348,13 +359,38 @@ io.on("connection", (socket) => {
 	})
 
 	socket.on("RTC_CALL_START", ({ roomId }) => {
+        if (!roomCallParticipants.has(roomId)) {
+            roomCallParticipants.set(roomId, new Set())
+        }
+        roomCallParticipants.get(roomId)?.add(socket.id)
+
 		socket.broadcast.to(roomId).emit("RTC_CALL_INVITE", {
 			senderId: socket.id,
 			senderName: getUserBySocketId(socket.id)?.username || "Someone"
 		})
 	})
 
+    socket.on("RTC_CALL_END", ({ roomId }) => {
+        const participants = roomCallParticipants.get(roomId)
+        if (participants) {
+            participants.delete(socket.id)
+            if (participants.size === 0) {
+                roomCallParticipants.delete(roomId)
+                io.to(roomId).emit("RTC_CALL_TERMINATED")
+            }
+        }
+    })
+
 	socket.on("RTC_PROCEED_OFFER", ({ targetId }) => {
+        const user = getUserBySocketId(socket.id)
+        if (user) {
+            const roomId = user.roomId
+            if (!roomCallParticipants.has(roomId)) {
+                roomCallParticipants.set(roomId, new Set())
+            }
+            roomCallParticipants.get(roomId)?.add(socket.id)
+        }
+
 		socket.to(targetId).emit("RTC_READY_TO_RECEIVE", {
 			senderId: socket.id
 		})
